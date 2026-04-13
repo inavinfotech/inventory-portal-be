@@ -3,10 +3,10 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from app.services.stock_service import stock_service
 from app.db.database import db_helper
-from app.auth.deps import get_current_app
+from app.auth.deps import get_authenticated_user
 from fastapi import Depends
 
-router = APIRouter(prefix="/inventory", tags=["inventory"], dependencies=[Depends(get_current_app)])
+router = APIRouter(prefix="/inventory", tags=["inventory"], dependencies=[Depends(get_authenticated_user)])
 
 class StockResponse(BaseModel):
     product_id: int
@@ -21,6 +21,37 @@ class StockAdjust(BaseModel):
     product_id: int = Field(..., gt=0)
     new_quantity: int = Field(..., ge=0)
     reference_id: Optional[str] = Field(None, min_length=1)
+
+class LowStockResponse(BaseModel):
+    product_id: int
+    name: str
+    sku: str
+    current_quantity: int
+    threshold: int
+
+@router.get("/stats")
+async def dashboard_stats():
+    return await stock_service.get_dashboard_stats()
+
+@router.get("/low-stock", response_model=List[LowStockResponse])
+async def get_low_stock():
+    async with db_helper.get_db_connection() as db:
+        async with db.execute("""
+            SELECT p.id, p.name, p.sku, i.quantity, i.low_stock_threshold
+            FROM inventory i
+            JOIN products p ON i.product_id = p.id
+            WHERE i.quantity < i.low_stock_threshold
+        """) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "product_id": r[0],
+                    "name": r[1],
+                    "sku": r[2],
+                    "current_quantity": r[3],
+                    "threshold": r[4]
+                } for r in rows
+            ]
 
 @router.get("/{product_id}", response_model=StockResponse)
 async def get_stock(product_id: int = Path(..., gt=0)):
@@ -57,13 +88,6 @@ class BulkResult(BaseModel):
     status: str
     message: Optional[str] = None
     new_quantity: Optional[int] = None
-
-class LowStockResponse(BaseModel):
-    product_id: int
-    name: str
-    sku: str
-    current_quantity: int
-    threshold: int
 
 @router.post("/bulk-update", response_model=List[BulkResult])
 async def bulk_update(batch: BulkUpdate):
@@ -104,26 +128,3 @@ async def bulk_remove(batch: BulkUpdate):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/stats")
-async def dashboard_stats():
-    return await stock_service.get_dashboard_stats()
-
-@router.get("/low-stock", response_model=List[LowStockResponse])
-async def get_low_stock():
-    async with db_helper.get_db_connection() as db:
-        async with db.execute("""
-            SELECT p.id, p.name, p.sku, i.quantity, i.low_stock_threshold
-            FROM inventory i
-            JOIN products p ON i.product_id = p.id
-            WHERE i.quantity < i.low_stock_threshold
-        """) as cursor:
-            rows = await cursor.fetchall()
-            return [
-                {
-                    "product_id": r[0],
-                    "name": r[1],
-                    "sku": r[2],
-                    "current_quantity": r[3],
-                    "threshold": r[4]
-                } for r in rows
-            ]

@@ -3,10 +3,10 @@ from typing import List
 from app.models.product import Product, ProductCreate
 from app.models.common import PaginatedResponse
 from app.services.product_service import product_service
-from app.auth.deps import get_current_app
+from app.auth.deps import get_authenticated_user
 from fastapi import Depends
 
-router = APIRouter(prefix="/products", tags=["products"], dependencies=[Depends(get_current_app)])
+router = APIRouter(prefix="/products", tags=["products"], dependencies=[Depends(get_authenticated_user)])
 
 @router.get("/", response_model=PaginatedResponse[Product])
 async def list_products(

@@ -6,6 +6,7 @@ from app.api.movements import router as movements_router
 from app.api.reservations import router as reservations_router
 from app.core.config import settings
 from app.core.middleware import StructuredLoggingMiddleware, RateLimitMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from app.core.exceptions import global_exception_handler, http_exception_handler
 
 import asyncio
@@ -32,6 +33,15 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     debug=settings.DEBUG,
     lifespan=lifespan
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Adjust this in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Add Middleware

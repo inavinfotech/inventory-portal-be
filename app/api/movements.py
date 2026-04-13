@@ -3,10 +3,10 @@ from typing import List, Optional
 from app.models.movement import Movement
 from app.models.common import PaginatedResponse
 from app.services.movement_service import movement_service
-from app.auth.deps import get_current_app
+from app.auth.deps import get_authenticated_user
 from fastapi import Depends
 
-router = APIRouter(prefix="/inventory/movements", tags=["inventory"], dependencies=[Depends(get_current_app)])
+router = APIRouter(prefix="/inventory/movements", tags=["inventory"], dependencies=[Depends(get_authenticated_user)])
 
 @router.get("/", response_model=PaginatedResponse[Movement])
 async def list_movements(

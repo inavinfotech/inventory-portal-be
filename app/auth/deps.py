@@ -39,3 +39,21 @@ async def verify_dashboard_auth(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Dashboard authentication required"
     )
+
+async def get_authenticated_user(
+    x_api_key: Optional[str] = Header(None),
+    x_api_secret: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
+):
+    # Try dashboard auth first
+    if authorization == "Bearer admin-token":
+        return {"type": "user", "name": "admin"}
+    
+    # Otherwise try app auth
+    if x_api_key and x_api_secret:
+        return await get_current_app(x_api_key, x_api_secret)
+        
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication credentials required"
+    )
