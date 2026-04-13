@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+aiosqlite
+pydantic
+pydantic-settings
+python-dotenv
+requests
+passlib
+
