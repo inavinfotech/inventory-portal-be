@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from app.api.auth import router as auth_router
 from app.api.apps import router as apps_router
 from app.api.inventory import router as inventory_router
 from app.api.products import router as products_router
@@ -55,6 +56,7 @@ app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 
 # Include Routers
+app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(apps_router, prefix=settings.API_V1_STR)
 app.include_router(inventory_router, prefix=settings.API_V1_STR)
 app.include_router(products_router, prefix=settings.API_V1_STR)

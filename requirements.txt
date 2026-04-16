@@ -5,5 +5,5 @@ pydantic
 pydantic-settings
 python-dotenv
 requests
-passlib
-
+passlib[bcrypt]
+python-jose[cryptography]
