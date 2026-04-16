@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Inventory Management System"
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = True
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:8000"]
+    ALLOWED_ORIGINS: list[str] = ["*"]
     DASHBOARD_TOKEN: str = "admin-token" # Change in production
     
     # Auth
