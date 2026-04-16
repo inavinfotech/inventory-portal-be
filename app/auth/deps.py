@@ -47,11 +47,19 @@ async def get_authenticated_user(
     x_api_secret: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None)
 ):
-    # Try dashboard auth first
+    # Try JWT auth first
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        from app.auth.security import decode_access_token
+        payload = decode_access_token(token)
+        if payload:
+            return {"type": "user", "email": payload.get("sub")}
+
+    # Try dashboard auth (old static token)
     if authorization == f"Bearer {settings.DASHBOARD_TOKEN}":
         return {"type": "user", "name": "admin"}
     
-    # Otherwise try app auth
+    # Otherwise try app auth (API keys)
     if x_api_key and x_api_secret:
         return await get_current_app(x_api_key, x_api_secret)
         
