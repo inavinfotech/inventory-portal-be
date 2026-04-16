@@ -13,9 +13,13 @@ from app.core.exceptions import global_exception_handler, http_exception_handler
 import asyncio
 from contextlib import asynccontextmanager
 from app.services.reservation_service import reservation_service
+from app.db.init_db import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize Database
+    await init_db()
+    
     # Background Task for Cleanup
     async def cleanup_loop():
         import logging
@@ -38,7 +42,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+# Add CORS middleware  
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
