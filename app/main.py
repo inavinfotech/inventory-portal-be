@@ -17,11 +17,13 @@ from app.services.reservation_service import reservation_service
 async def lifespan(app: FastAPI):
     # Background Task for Cleanup
     async def cleanup_loop():
+        import logging
+        logger = logging.getLogger("uvicorn.error")
         while True:
             try:
                 await reservation_service.cleanup_stale_reservations(30)
-            except Exception:
-                pass # Log error in production
+            except Exception as e:
+                logger.error(f"Reservation cleanup failed: {e}", exc_info=True)
             await asyncio.sleep(300) # Every 5 minutes
 
     task = asyncio.create_task(cleanup_loop())
@@ -38,7 +40,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust this in production
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

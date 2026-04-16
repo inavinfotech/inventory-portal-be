@@ -28,11 +28,13 @@ async def get_current_app(
     
     return app
 
+from app.core.config import settings
+
 async def verify_dashboard_auth(
     authorization: str = Header(None)
 ):
     # Simplified for now, could be expanded to JWT like order-portal
-    if authorization == "Bearer admin-token":
+    if authorization == f"Bearer {settings.DASHBOARD_TOKEN}":
         return True
     
     raise HTTPException(
@@ -46,7 +48,7 @@ async def get_authenticated_user(
     authorization: Optional[str] = Header(None)
 ):
     # Try dashboard auth first
-    if authorization == "Bearer admin-token":
+    if authorization == f"Bearer {settings.DASHBOARD_TOKEN}":
         return {"type": "user", "name": "admin"}
     
     # Otherwise try app auth
