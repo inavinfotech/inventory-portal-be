@@ -17,7 +17,7 @@ from app.db.init_db import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize Database
+    # Initialize Database 
     await init_db()
     
     # Background Task for Cleanup

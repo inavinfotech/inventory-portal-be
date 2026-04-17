@@ -20,7 +20,8 @@ async def login(login_data: LoginRequest):
     access_token = create_access_token(data={"sub": login_data.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
+from app.auth.deps import get_authenticated_user
+
 @router.get("/verify")
-async def verify_token(user: dict = Depends(lambda: {"status": "valid"})):
-    # You might want to add real token verification dependency here later
-    return {"status": "valid"}
+async def verify_token(user: dict = Depends(get_authenticated_user)):
+    return {"status": "valid", "user": user}

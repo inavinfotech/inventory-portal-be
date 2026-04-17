@@ -52,27 +52,32 @@ async def get_authenticated_user(
 
     # Try JWT auth first
     if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ")[1]
-        from app.auth.security import decode_access_token
-        payload = decode_access_token(token)
-        if payload:
-            return {"type": "user", "email": payload.get("sub")}
+        # Better token extraction
+        parts = authorization.split()
+        if len(parts) >= 2:
+            token = parts[1]
+            from app.auth.security import decode_access_token
+            payload = decode_access_token(token)
+            if payload:
+                return {"type": "user", "email": payload.get("sub")}
+            else:
+                logger.warning(f"Invalid or expired JWT token provided: {token[:10]}...")
         else:
-            logger.warning(f"Invalid or expired JWT token provided: {token[:10]}...")
+            logger.warning(f"Malformed Authorization header: {authorization[:20]}...")
 
-    # Try dashboard auth (old static token)
+    # Try dashboard auth (static token from settings)
     if authorization == f"Bearer {settings.DASHBOARD_TOKEN}":
         return {"type": "user", "name": "admin"}
-    elif authorization:
-        logger.warning(f"Authorization header provided but didn't match JWT or Dashboard token: {authorization[:15]}...")
+    elif authorization and not authorization.startswith("Bearer "):
+         logger.warning(f"Non-Bearer Authorization header provided: {authorization[:20]}...")
     
     # Otherwise try app auth (API keys)
     if x_api_key and x_api_secret:
         return await get_current_app(x_api_key, x_api_secret)
         
-    logger.error("Authentication failed: No valid credentials provided (Missing or invalid Token/API Keys)")
+    logger.error(f"Authentication failed for request. Authorization header length: {len(authorization) if authorization else 0}")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication credentials required"
+        detail="Authentication required. Please login or provide a valid API Key/Token."
     )
 
