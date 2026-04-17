@@ -12,10 +12,10 @@ def get_secret_hash(secret: str) -> str:
     return sha256_crypt.hash(secret)
 
 def generate_api_key() -> str:
-    return f"inv_key_{secrets.token_hex(6)}"
+    return f"app_{secrets.token_hex(12)}"
 
 def generate_api_secret() -> str:
-    return f"inv_sec_{secrets.token_hex(12)}"
+    return secrets.token_urlsafe(32)[:40]
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
