@@ -28,8 +28,12 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 def decode_access_token(token: str):
+    import logging
+    logger = logging.getLogger("uvicorn.error")
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload
-    except Exception:
+    except Exception as e:
+        logger.error(f"JWT Decode Error: {str(e)}")
         return None
+

@@ -47,6 +47,9 @@ async def get_authenticated_user(
     x_api_secret: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None)
 ):
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+
     # Try JWT auth first
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ")[1]
@@ -54,16 +57,22 @@ async def get_authenticated_user(
         payload = decode_access_token(token)
         if payload:
             return {"type": "user", "email": payload.get("sub")}
+        else:
+            logger.warning(f"Invalid or expired JWT token provided: {token[:10]}...")
 
     # Try dashboard auth (old static token)
     if authorization == f"Bearer {settings.DASHBOARD_TOKEN}":
         return {"type": "user", "name": "admin"}
+    elif authorization:
+        logger.warning(f"Authorization header provided but didn't match JWT or Dashboard token: {authorization[:15]}...")
     
     # Otherwise try app auth (API keys)
     if x_api_key and x_api_secret:
         return await get_current_app(x_api_key, x_api_secret)
         
+    logger.error("Authentication failed: No valid credentials provided (Missing or invalid Token/API Keys)")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication credentials required"
     )
+
