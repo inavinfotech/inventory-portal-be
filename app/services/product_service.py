@@ -2,8 +2,21 @@ from typing import List, Optional, Tuple
 from app.db.database import db_helper
 from app.models.product import ProductCreate, ProductUpdate
 import aiosqlite
+import json
 
 class ProductService:
+    @staticmethod
+    def _process_product_row(row: dict) -> dict:
+        data = dict(row)
+        if data.get("images"):
+            try:
+                data["images"] = json.loads(data["images"])
+            except:
+                data["images"] = []
+        else:
+            data["images"] = []
+        return data
+
     @staticmethod
     async def get_products(limit: int = 10, offset: int = 0) -> Tuple[List[dict], int]:
         async with db_helper.get_db_connection() as db:
@@ -17,7 +30,7 @@ class ProductService:
                 (limit, offset)
             ) as cursor:
                 rows = await cursor.fetchall()
-                items = [dict(row) for row in rows]
+                items = [ProductService._process_product_row(row) for row in rows]
                 
             return items, total
 
@@ -26,14 +39,14 @@ class ProductService:
         async with db_helper.get_db_connection() as db:
             async with db.execute("SELECT * FROM products WHERE id = ?", (product_id,)) as cursor:
                 row = await cursor.fetchone()
-                return dict(row) if row else None
+                return ProductService._process_product_row(row) if row else None
 
     @staticmethod
     async def get_product_by_sku(sku: str) -> Optional[dict]:
         async with db_helper.get_db_connection() as db:
             async with db.execute("SELECT * FROM products WHERE sku = ?", (sku,)) as cursor:
                 row = await cursor.fetchone()
-                return dict(row) if row else None
+                return ProductService._process_product_row(row) if row else None
 
     @staticmethod
     async def create_product(product: ProductCreate) -> dict:
@@ -43,9 +56,10 @@ class ProductService:
             return existing
 
         async with db_helper.get_db_connection() as db:
+            images_json = json.dumps(product.images) if product.images else None
             cursor = await db.execute(
-                "INSERT INTO products (name, sku, description, price) VALUES (?, ?, ?, ?)",
-                (product.name, product.sku, product.description, product.price)
+                "INSERT INTO products (name, sku, description, price, images) VALUES (?, ?, ?, ?, ?)",
+                (product.name, product.sku, product.description, product.price, images_json)
             )
             await db.commit()
             product_id = cursor.lastrowid

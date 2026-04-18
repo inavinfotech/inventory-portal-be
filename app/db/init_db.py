@@ -31,6 +31,7 @@ async def init_db():
                 sku TEXT UNIQUE NOT NULL,
                 description TEXT,
                 price REAL NOT NULL,
+                images TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )

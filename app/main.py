@@ -9,6 +9,8 @@ from app.core.config import settings
 from app.core.middleware import StructuredLoggingMiddleware, RateLimitMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.exceptions import global_exception_handler, http_exception_handler
+from fastapi.staticfiles import StaticFiles
+import os
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -66,6 +68,13 @@ app.include_router(inventory_router, prefix=settings.API_V1_STR)
 app.include_router(products_router, prefix=settings.API_V1_STR)
 app.include_router(movements_router, prefix=settings.API_V1_STR)
 app.include_router(reservations_router, prefix=settings.API_V1_STR)
+
+# Mount static files for uploads
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 @app.get("/health")
 async def health_check():

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 
 class ProductBase(BaseModel):
@@ -7,6 +7,7 @@ class ProductBase(BaseModel):
     sku: str
     description: Optional[str] = None
     price: float = Field(..., gt=0)
+    images: Optional[List[str]] = None
 
 class ProductCreate(ProductBase):
     pass
@@ -15,6 +16,7 @@ class ProductUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     price: Optional[float] = Field(None, gt=0)
+    images: Optional[List[str]] = None
 
 class Product(ProductBase):
     id: int
