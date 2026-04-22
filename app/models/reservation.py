@@ -4,6 +4,7 @@ from typing import Optional
 
 class ReservationBase(BaseModel):
     product_id: int = Field(..., gt=0)
+    variant_id: Optional[int] = None
     quantity: int = Field(..., gt=0)
 
 class ReservationCreate(ReservationBase):

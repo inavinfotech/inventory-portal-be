@@ -7,7 +7,7 @@ router = APIRouter(prefix="/inventory", tags=["reservations"])
 @router.post("/reserve", response_model=Reservation, status_code=status.HTTP_201_CREATED)
 async def reserve_stock(req: ReservationCreate):
     try:
-        return await reservation_service.create_reservation(req.product_id, req.quantity)
+        return await reservation_service.create_reservation(req.product_id, req.quantity, req.variant_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

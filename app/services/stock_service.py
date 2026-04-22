@@ -5,151 +5,174 @@ from datetime import datetime
 
 class StockService:
     @staticmethod
-    async def get_stock(product_id: int) -> int:
+    async def get_stock(product_id: int, variant_id: Optional[int] = None) -> int:
         async with db_helper.get_db_connection() as db:
-            async with db.execute("SELECT quantity FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
-                row = await cursor.fetchone()
-                return row[0] if row else 0
+            if variant_id:
+                async with db.execute("SELECT quantity FROM inventory WHERE variant_id = ?", (variant_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    return row[0] if row else 0
+            else:
+                async with db.execute("SELECT SUM(quantity) FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    return row[0] if row and row[0] is not None else 0
 
     @staticmethod
-    async def _ensure_product_exists(db: aiosqlite.Connection, product_id: int):
+    async def _ensure_product_exists(db: aiosqlite.Connection, product_id: int, variant_id: Optional[int] = None):
         async with db.execute("SELECT id FROM products WHERE id = ?", (product_id,)) as cursor:
             if not await cursor.fetchone():
                 raise ValueError(f"Product with id {product_id} does not exist")
+        
+        if variant_id:
+            async with db.execute("SELECT id FROM product_variants WHERE id = ? AND product_id = ?", (variant_id, product_id)) as cursor:
+                if not await cursor.fetchone():
+                    raise ValueError(f"Variant with id {variant_id} does not exist for product {product_id}")
 
     @staticmethod
-    async def _init_inventory_if_missing(db: aiosqlite.Connection, product_id: int):
-        async with db.execute("SELECT id FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
-            if not await cursor.fetchone():
-                await db.execute("INSERT INTO inventory (product_id, quantity) VALUES (?, 0)", (product_id,))
+    async def _init_inventory_if_missing(db: aiosqlite.Connection, product_id: int, variant_id: Optional[int] = None):
+        if variant_id:
+            async with db.execute("SELECT id FROM inventory WHERE variant_id = ?", (variant_id,)) as cursor:
+                if not await cursor.fetchone():
+                    await db.execute("INSERT INTO inventory (product_id, variant_id, quantity) VALUES (?, ?, 0)", (product_id, variant_id))
+        else:
+            async with db.execute("SELECT id FROM inventory WHERE product_id = ? AND variant_id IS NULL", (product_id,)) as cursor:
+                if not await cursor.fetchone():
+                    await db.execute("INSERT INTO inventory (product_id, variant_id, quantity) VALUES (?, NULL, 0)", (product_id,))
 
     @staticmethod
-    async def _check_idempotency(db: aiosqlite.Connection, product_id: int, reference_id: Optional[str]) -> Optional[int]:
+    async def _check_idempotency(db: aiosqlite.Connection, product_id: int, variant_id: Optional[int], reference_id: Optional[str]) -> Optional[int]:
         if not reference_id:
             return None
-        async with db.execute(
-            "SELECT id FROM stock_movements WHERE product_id = ? AND reference_id = ?",
-            (product_id, reference_id)
-        ) as cursor:
+        
+        query = "SELECT id FROM stock_movements WHERE product_id = ? AND reference_id = ?"
+        params = [product_id, reference_id]
+        if variant_id:
+            query += " AND variant_id = ?"
+            params.append(variant_id)
+        else:
+            query += " AND variant_id IS NULL"
+
+        async with db.execute(query, params) as cursor:
             if await cursor.fetchone():
-                async with db.execute("SELECT quantity FROM inventory WHERE product_id = ?", (product_id,)) as q_cursor:
-                    row = await q_cursor.fetchone()
-                    return row[0] if row else 0
+                return await StockService.get_stock(product_id, variant_id)
         return None
 
     @staticmethod
-    async def add_stock(product_id: int, qty: int, reference_id: Optional[str] = None) -> int:
+    async def add_stock(product_id: int, qty: int, reference_id: Optional[str] = None, variant_id: Optional[int] = None) -> int:
         if qty <= 0:
             raise ValueError("Quantity must be positive")
             
         async with db_helper.get_db_connection() as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
-                await StockService._ensure_product_exists(db, product_id)
-                await StockService._init_inventory_if_missing(db, product_id)
+                await StockService._ensure_product_exists(db, product_id, variant_id)
+                await StockService._init_inventory_if_missing(db, product_id, variant_id)
                 
                 # Idempotency check
-                existing_qty = await StockService._check_idempotency(db, product_id, reference_id)
+                existing_qty = await StockService._check_idempotency(db, product_id, variant_id, reference_id)
                 if existing_qty is not None:
                     await db.rollback()
                     return existing_qty
 
                 # Update inventory
-                await db.execute(
-                    "UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?",
-                    (qty, product_id)
-                )
+                query = "UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?"
+                params = [qty, product_id]
+                if variant_id:
+                    query += " AND variant_id = ?"
+                    params.append(variant_id)
+                else:
+                    query += " AND variant_id IS NULL"
+                
+                await db.execute(query, params)
                 
                 # Log movement
                 await db.execute(
-                    "INSERT INTO stock_movements (product_id, quantity, type, reference_id) VALUES (?, ?, 'IN', ?)",
-                    (product_id, qty, reference_id)
+                    "INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'IN', ?)",
+                    (product_id, variant_id, qty, reference_id)
                 )
                 
-                # Get updated qty
-                async with db.execute("SELECT quantity FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
-                    updated_qty = (await cursor.fetchone())[0]
-
                 await db.commit()
-                return updated_qty
+                return await StockService.get_stock(product_id, variant_id)
             except Exception as e:
                 await db.rollback()
                 raise e
 
     @staticmethod
-    async def remove_stock(product_id: int, qty: int, reference_id: Optional[str] = None) -> int:
+    async def remove_stock(product_id: int, qty: int, reference_id: Optional[str] = None, variant_id: Optional[int] = None) -> int:
         if qty <= 0:
             raise ValueError("Quantity must be positive")
 
         async with db_helper.get_db_connection() as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
-                await StockService._ensure_product_exists(db, product_id)
-                await StockService._init_inventory_if_missing(db, product_id)
+                await StockService._ensure_product_exists(db, product_id, variant_id)
+                await StockService._init_inventory_if_missing(db, product_id, variant_id)
 
                 # Idempotency check
-                existing_qty = await StockService._check_idempotency(db, product_id, reference_id)
+                existing_qty = await StockService._check_idempotency(db, product_id, variant_id, reference_id)
                 if existing_qty is not None:
                     await db.rollback()
                     return existing_qty
 
                 # Check current stock
-                async with db.execute("SELECT quantity FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
-                    current_qty = (await cursor.fetchone())[0]
-                    if current_qty < qty:
-                        raise ValueError(f"Insufficient stock. Available: {current_qty}, Requested: {qty}")
+                current_qty = await StockService.get_stock(product_id, variant_id)
+                if current_qty < qty:
+                    raise ValueError(f"Insufficient stock. Available: {current_qty}, Requested: {qty}")
 
                 # Update inventory
-                await db.execute(
-                    "UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?",
-                    (qty, product_id)
-                )
+                query = "UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?"
+                params = [qty, product_id]
+                if variant_id:
+                    query += " AND variant_id = ?"
+                    params.append(variant_id)
+                else:
+                    query += " AND variant_id IS NULL"
+                
+                await db.execute(query, params)
 
                 # Log movement
                 await db.execute(
-                    "INSERT INTO stock_movements (product_id, quantity, type, reference_id) VALUES (?, ?, 'OUT', ?)",
-                    (product_id, -qty, reference_id)
+                    "INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'OUT', ?)",
+                    (product_id, variant_id, -qty, reference_id)
                 )
 
-                # Get updated qty
-                async with db.execute("SELECT quantity FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
-                    updated_qty = (await cursor.fetchone())[0]
-
                 await db.commit()
-                return updated_qty
+                return await StockService.get_stock(product_id, variant_id)
             except Exception as e:
                 await db.rollback()
                 raise e
 
     @staticmethod
-    async def adjust_stock(product_id: int, new_qty: int, reference_id: Optional[str] = None) -> int:
+    async def adjust_stock(product_id: int, new_qty: int, reference_id: Optional[str] = None, variant_id: Optional[int] = None) -> int:
         if new_qty < 0:
             raise ValueError("Stock quantity cannot be negative")
 
         async with db_helper.get_db_connection() as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
-                await StockService._ensure_product_exists(db, product_id)
-                await StockService._init_inventory_if_missing(db, product_id)
+                await StockService._ensure_product_exists(db, product_id, variant_id)
+                await StockService._init_inventory_if_missing(db, product_id, variant_id)
 
                 # Idempotency check
-                existing_qty = await StockService._check_idempotency(db, product_id, reference_id)
+                existing_qty = await StockService._check_idempotency(db, product_id, variant_id, reference_id)
                 if existing_qty is not None:
-                    # Note: For ADJUST, it's a bit tricky. If we already adjusted to X, and we try again, we return X.
-                    # But we'll follow the same pattern: if the movement exists, we assume success.
                     await db.rollback()
                     return existing_qty
 
                 # Update inventory
-                await db.execute(
-                    "UPDATE inventory SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?",
-                    (new_qty, product_id)
-                )
+                query = "UPDATE inventory SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?"
+                params = [new_qty, product_id]
+                if variant_id:
+                    query += " AND variant_id = ?"
+                    params.append(variant_id)
+                else:
+                    query += " AND variant_id IS NULL"
+                    
+                await db.execute(query, params)
 
                 # Log movement
                 await db.execute(
-                    "INSERT INTO stock_movements (product_id, quantity, type, reference_id) VALUES (?, ?, 'ADJUST', ?)",
-                    (product_id, new_qty, reference_id)
+                    "INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'ADJUST', ?)",
+                    (product_id, variant_id, new_qty, reference_id)
                 )
 
                 await db.commit()
@@ -166,37 +189,40 @@ class StockService:
                 results = []
                 for update in updates:
                     product_id = update["product_id"]
+                    variant_id = update.get("variant_id")
                     qty = update["quantity"]
                     reference_id = update.get("reference_id") or global_reference_id
                     
                     if qty <= 0:
                         raise ValueError(f"Quantity for product {product_id} must be positive")
                         
-                    await StockService._ensure_product_exists(db, product_id)
-                    await StockService._init_inventory_if_missing(db, product_id)
+                    await StockService._ensure_product_exists(db, product_id, variant_id)
+                    await StockService._init_inventory_if_missing(db, product_id, variant_id)
                     
                     # Idempotency check
-                    existing_qty = await StockService._check_idempotency(db, product_id, reference_id)
+                    existing_qty = await StockService._check_idempotency(db, product_id, variant_id, reference_id)
                     if existing_qty is not None:
-                        results.append({"product_id": product_id, "quantity": existing_qty, "status": "already_processed"})
+                        results.append({"product_id": product_id, "variant_id": variant_id, "quantity": existing_qty, "status": "already_processed"})
                         continue
 
                     # Update inventory
-                    await db.execute(
-                        "UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?",
-                        (qty, product_id)
-                    )
+                    query = "UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?"
+                    params = [qty, product_id]
+                    if variant_id:
+                        query += " AND variant_id = ?"
+                        params.append(variant_id)
+                    else:
+                        query += " AND variant_id IS NULL"
+                    await db.execute(query, params)
                     
                     # Log movement
                     await db.execute(
-                        "INSERT INTO stock_movements (product_id, quantity, type, reference_id) VALUES (?, ?, 'IN', ?)",
-                        (product_id, qty, reference_id)
+                        "INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'IN', ?)",
+                        (product_id, variant_id, qty, reference_id)
                     )
                     
-                    # Get updated qty
-                    async with db.execute("SELECT quantity FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
-                        updated_qty = (await cursor.fetchone())[0]
-                        results.append({"product_id": product_id, "quantity": updated_qty, "status": "updated"})
+                    updated_qty = await StockService.get_stock(product_id, variant_id)
+                    results.append({"product_id": product_id, "variant_id": variant_id, "quantity": updated_qty, "status": "updated"})
 
                 await db.commit()
                 return results
@@ -212,43 +238,45 @@ class StockService:
                 results = []
                 for update in updates:
                     product_id = update["product_id"]
+                    variant_id = update.get("variant_id")
                     qty = update["quantity"]
                     reference_id = update.get("reference_id") or global_reference_id
                     
                     if qty <= 0:
                         raise ValueError(f"Quantity for product {product_id} must be positive")
 
-                    await StockService._ensure_product_exists(db, product_id)
-                    await StockService._init_inventory_if_missing(db, product_id)
+                    await StockService._ensure_product_exists(db, product_id, variant_id)
+                    await StockService._init_inventory_if_missing(db, product_id, variant_id)
 
                     # Idempotency check
-                    existing_qty = await StockService._check_idempotency(db, product_id, reference_id)
+                    existing_qty = await StockService._check_idempotency(db, product_id, variant_id, reference_id)
                     if existing_qty is not None:
-                        results.append({"product_id": product_id, "quantity": existing_qty, "status": "already_processed"})
+                        results.append({"product_id": product_id, "variant_id": variant_id, "quantity": existing_qty, "status": "already_processed"})
                         continue
 
                     # Check current stock
-                    async with db.execute("SELECT quantity FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
-                        current_qty = (await cursor.fetchone())[0]
-                        if current_qty < qty:
-                            raise ValueError(f"Insufficient stock for product {product_id}. Available: {current_qty}, Requested: {qty}")
+                    current_qty = await StockService.get_stock(product_id, variant_id)
+                    if current_qty < qty:
+                        raise ValueError(f"Insufficient stock for product {product_id}. Available: {current_qty}, Requested: {qty}")
 
                     # Update inventory
-                    await db.execute(
-                        "UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?",
-                        (qty, product_id)
-                    )
+                    query = "UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?"
+                    params = [qty, product_id]
+                    if variant_id:
+                        query += " AND variant_id = ?"
+                        params.append(variant_id)
+                    else:
+                        query += " AND variant_id IS NULL"
+                    await db.execute(query, params)
 
                     # Log movement
                     await db.execute(
-                        "INSERT INTO stock_movements (product_id, quantity, type, reference_id) VALUES (?, ?, 'OUT', ?)",
-                        (product_id, -qty, reference_id)
+                        "INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'OUT', ?)",
+                        (product_id, variant_id, -qty, reference_id)
                     )
 
-                    # Get updated qty
-                    async with db.execute("SELECT quantity FROM inventory WHERE product_id = ?", (product_id,)) as cursor:
-                        updated_qty = (await cursor.fetchone())[0]
-                        results.append({"product_id": product_id, "quantity": updated_qty, "status": "updated"})
+                    updated_qty = await StockService.get_stock(product_id, variant_id)
+                    results.append({"product_id": product_id, "variant_id": variant_id, "quantity": updated_qty, "status": "updated"})
 
                 await db.commit()
                 return results

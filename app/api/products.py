@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, status, Path, Response
 from typing import List
-from app.models.product import Product, ProductCreate
+from app.models.product import Product, ProductCreate, ProductUpdate
 from app.models.common import PaginatedResponse
 from app.services.product_service import product_service
 from app.auth.deps import get_authenticated_user
@@ -41,6 +41,13 @@ async def create_product(product: ProductCreate, response: Response):
     
     response.status_code = status.HTTP_201_CREATED
     return await product_service.create_product(product)
+
+@router.put("/{product_id}", response_model=Product)
+async def update_product(product_id: int, product: ProductUpdate):
+    updated = await product_service.update_product(product_id, product)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return updated
 
 @router.post("/upload-images", response_model=List[str])
 async def upload_images(files: List[UploadFile] = File(...)):

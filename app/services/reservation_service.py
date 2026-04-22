@@ -5,31 +5,37 @@ import aiosqlite
 
 class ReservationService:
     @staticmethod
-    async def get_available_stock(product_id: int) -> int:
-        physical_stock = await stock_service.get_stock(product_id)
+    async def get_available_stock(product_id: int, variant_id: Optional[int] = None) -> int:
+        physical_stock = await stock_service.get_stock(product_id, variant_id)
         async with db_helper.get_db_connection() as db:
-            async with db.execute(
-                "SELECT SUM(quantity) FROM reservations WHERE product_id = ? AND status = 'RESERVED'",
-                (product_id,)
-            ) as cursor:
+            query = "SELECT SUM(quantity) FROM reservations WHERE product_id = ? AND status = 'RESERVED'"
+            params = [product_id]
+            if variant_id:
+                query += " AND variant_id = ?"
+                params.append(variant_id)
+            else:
+                query += " AND variant_id IS NULL"
+                
+            async with db.execute(query, params) as cursor:
                 row = await cursor.fetchone()
                 reserved_stock = row[0] if row[0] else 0
                 return physical_stock - reserved_stock
 
     @staticmethod
-    async def create_reservation(product_id: int, qty: int) -> dict:
+    async def create_reservation(product_id: int, qty: int, variant_id: Optional[int] = None) -> dict:
         async with db_helper.get_db_connection() as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
-                # 1. Validate App & Product existence via FKs (SQLite will check on insert, but we check available stock first)
-                available = await ReservationService.get_available_stock(product_id)
+                # 1. Validate Available Stock
+                available = await ReservationService.get_available_stock(product_id, variant_id)
                 if available < qty:
-                    raise ValueError(f"Insufficient available stock. Available: {available}, Requested: {qty}")
+                    variant_info = f" for variant {variant_id}" if variant_id else ""
+                    raise ValueError(f"Insufficient available stock{variant_info}. Available: {available}, Requested: {qty}")
 
                 # 2. Insert reservation
                 cursor = await db.execute(
-                    "INSERT INTO reservations (product_id, quantity, status) VALUES (?, ?, 'RESERVED')",
-                    (product_id, qty)
+                    "INSERT INTO reservations (product_id, variant_id, quantity, status) VALUES (?, ?, ?, 'RESERVED')",
+                    (product_id, variant_id, qty)
                 )
                 res_id = cursor.lastrowid
                 await db.commit()
@@ -61,19 +67,21 @@ class ReservationService:
                     (reservation_id,)
                 )
                 
-                # Physical stock reduction using the same internal logic as remove_stock but without double-checking available (since it was reserved)
-                # However, to maintain integrity and audit log, we'll call stock_service or handle it here.
-                # Calling stock_service.remove_stock would create a NEW transaction, which we can't do within this one.
-                # So we manually perform the update and log movement.
+                # Physical stock reduction using variant matching
+                query = "UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?"
+                params = [res["quantity"], res["product_id"]]
+                if res["variant_id"]:
+                    query += " AND variant_id = ?"
+                    params.append(res["variant_id"])
+                else:
+                    query += " AND variant_id IS NULL"
                 
-                await db.execute(
-                    "UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?",
-                    (res["quantity"], res["product_id"])
-                )
+                await db.execute(query, params)
                 
+                # Log movement
                 await db.execute(
-                    "INSERT INTO stock_movements (product_id, quantity, type, reference_id) VALUES (?, ?, 'OUT', ?)",
-                    (res["product_id"], -res["quantity"], f"RESERVATION-CONFIRM-{reservation_id}")
+                    "INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'OUT', ?)",
+                    (res["product_id"], res["variant_id"], -res["quantity"], f"RESERVATION-CONFIRM-{reservation_id}")
                 )
 
                 await db.commit()

@@ -11,3 +11,4 @@ env/
 static/uploads/*
 !static/uploads/.gitkeep
 .env.example
+/uploads
