@@ -17,6 +17,7 @@ class ProductVariant(ProductVariantBase):
     id: int
     product_id: int
     stock: int = 0
+    reserved: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -30,6 +31,7 @@ class ProductBase(BaseModel):
     price: float = Field(..., gt=0)
     images: Optional[List[str]] = None
     stock: int = 0
+    reserved: int = 0
 
 class ProductCreate(ProductBase):
     variants: Optional[List[ProductVariantCreate]] = None

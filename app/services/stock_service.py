@@ -305,11 +305,24 @@ class StockService:
             ) as cursor:
                 movements_24h = (await cursor.fetchone())[0]
 
+            # Stock Distribution (Top 5 products by total stock)
+            async with db.execute("""
+                SELECT p.name, SUM(i.quantity) as total_qty
+                FROM inventory i
+                JOIN products p ON i.product_id = p.id
+                GROUP BY p.id
+                ORDER BY total_qty DESC
+                LIMIT 5
+            """) as cursor:
+                rows = await cursor.fetchall()
+                stock_distribution = [{"name": r[0], "quantity": r[1]} for r in rows]
+
             return {
                 "total_products": total_products,
                 "low_stock_count": low_stock,
                 "pending_reservations": pending_reservations,
-                "movements_24h": movements_24h
+                "movements_24h": movements_24h,
+                "stock_distribution": stock_distribution
             }
 
 stock_service = StockService()

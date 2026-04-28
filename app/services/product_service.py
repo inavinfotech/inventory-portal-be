@@ -20,7 +20,9 @@ class ProductService:
     @staticmethod
     async def _get_variants_for_product(db: aiosqlite.Connection, product_id: int) -> List[dict]:
         async with db.execute("""
-            SELECT v.*, COALESCE(i.quantity, 0) as stock 
+            SELECT v.*, 
+                   COALESCE(i.quantity, 0) as stock,
+                   COALESCE((SELECT SUM(r.quantity) FROM reservations r WHERE r.variant_id = v.id AND r.status = 'RESERVED'), 0) as reserved
             FROM product_variants v
             LEFT JOIN inventory i ON v.id = i.variant_id
             WHERE v.product_id = ?
@@ -35,9 +37,11 @@ class ProductService:
             async with db.execute("SELECT COUNT(*) FROM products") as cursor:
                 total = (await cursor.fetchone())[0]
 
-            # Get paginated items with total stock
+            # Get paginated items with total stock and total reserved
             async with db.execute("""
-                SELECT p.*, (SELECT SUM(quantity) FROM inventory WHERE product_id = p.id) as stock
+                SELECT p.*, 
+                       (SELECT SUM(quantity) FROM inventory WHERE product_id = p.id) as stock,
+                       COALESCE((SELECT SUM(quantity) FROM reservations WHERE product_id = p.id AND status = 'RESERVED'), 0) as reserved
                 FROM products p
                 ORDER BY p.created_at DESC LIMIT ? OFFSET ?
             """, (limit, offset)) as cursor:
@@ -46,6 +50,7 @@ class ProductService:
                 for row in rows:
                     product = ProductService._process_product_row(row)
                     product["stock"] = row["stock"] if row["stock"] is not None else 0
+                    product["reserved"] = row["reserved"] if row["reserved"] is not None else 0
                     product["variants"] = await ProductService._get_variants_for_product(db, product["id"])
                     items.append(product)
                 
@@ -55,7 +60,9 @@ class ProductService:
     async def get_product_by_id(product_id: int) -> Optional[dict]:
         async with db_helper.get_db_connection() as db:
             async with db.execute("""
-                SELECT p.*, (SELECT SUM(quantity) FROM inventory WHERE product_id = p.id) as stock
+                SELECT p.*, 
+                       (SELECT SUM(quantity) FROM inventory WHERE product_id = p.id) as stock,
+                       COALESCE((SELECT SUM(quantity) FROM reservations WHERE product_id = p.id AND status = 'RESERVED'), 0) as reserved
                 FROM products p WHERE p.id = ?
             """, (product_id,)) as cursor:
                 row = await cursor.fetchone()
@@ -63,6 +70,7 @@ class ProductService:
                     return None
                 product = ProductService._process_product_row(row)
                 product["stock"] = row["stock"] if row["stock"] is not None else 0
+                product["reserved"] = row["reserved"] if row["reserved"] is not None else 0
                 product["variants"] = await ProductService._get_variants_for_product(db, product_id)
                 return product
 
@@ -70,7 +78,9 @@ class ProductService:
     async def get_product_by_sku(sku: str) -> Optional[dict]:
         async with db_helper.get_db_connection() as db:
             async with db.execute("""
-                SELECT p.*, (SELECT SUM(quantity) FROM inventory WHERE product_id = p.id) as stock
+                SELECT p.*, 
+                       (SELECT SUM(quantity) FROM inventory WHERE product_id = p.id) as stock,
+                       COALESCE((SELECT SUM(quantity) FROM reservations WHERE product_id = p.id AND status = 'RESERVED'), 0) as reserved
                 FROM products p WHERE p.sku = ?
             """, (sku,)) as cursor:
                 row = await cursor.fetchone()
@@ -78,6 +88,7 @@ class ProductService:
                     return None
                 product = ProductService._process_product_row(row)
                 product["stock"] = row["stock"] if row["stock"] is not None else 0
+                product["reserved"] = row["reserved"] if row["reserved"] is not None else 0
                 product["variants"] = await ProductService._get_variants_for_product(db, product["id"])
                 return product
 
