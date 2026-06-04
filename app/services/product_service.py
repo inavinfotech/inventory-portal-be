@@ -160,10 +160,10 @@ class ProductService:
                     # 2. Update existing or Insert new variants
                     for variant in variants_to_update:
                         if variant.get("id"):
-                            # Update existing
+                            # Update existing (sku is blocked for change)
                             await db.execute(
-                                "UPDATE product_variants SET sku = ?, weight = ?, price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                                (variant["sku"], variant["weight"], variant["price"], variant["id"])
+                                "UPDATE product_variants SET weight = ?, price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (variant["weight"], variant["price"], variant["id"])
                             )
                         else:
                             # Insert new
