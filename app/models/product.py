@@ -4,14 +4,19 @@ from datetime import datetime
 
 class ProductVariantBase(BaseModel):
     sku: str
-    weight: str
     price: float = Field(..., gt=0)
+    size: Optional[str] = None
+    color: Optional[str] = None
+    weight: Optional[str] = None
+    attributes: Optional[dict] = None
 
 class ProductVariantCreate(ProductVariantBase):
-    pass
+    initial_stock: Optional[int] = 0
+    stock: Optional[int] = 0
 
 class ProductVariantUpdate(ProductVariantBase):
     id: Optional[int] = None
+    stock: Optional[int] = None
 
 class ProductVariant(ProductVariantBase):
     id: int

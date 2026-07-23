@@ -43,7 +43,10 @@ async def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 product_id INTEGER NOT NULL,
                 sku TEXT UNIQUE NOT NULL,
-                weight TEXT NOT NULL,
+                weight TEXT,
+                size TEXT,
+                color TEXT,
+                attributes TEXT,
                 price REAL NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -102,9 +105,15 @@ async def init_db():
             columns = [row[1] for row in await cursor.fetchall()]
             if "variant_id" not in columns:
                 print(f"Adding variant_id to {table}...")
-                # Note: SQLite ALTER TABLE doesn't support complex FK additions in the same step easily, 
-                # but adding the column and then the index is usually sufficient for SQLite.
                 await db.execute(f"ALTER TABLE {table} ADD COLUMN variant_id INTEGER")
+
+        # Migration: Add size, color, attributes columns to product_variants if missing
+        cursor = await db.execute("PRAGMA table_info(product_variants)")
+        variant_columns = [row[1] for row in await cursor.fetchall()]
+        for new_col in ["size", "color", "attributes"]:
+            if new_col not in variant_columns:
+                print(f"Adding {new_col} column to product_variants...")
+                await db.execute(f"ALTER TABLE product_variants ADD COLUMN {new_col} TEXT")
 
         # Indexes
         await db.execute("CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)")

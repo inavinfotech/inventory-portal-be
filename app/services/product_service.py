@@ -28,7 +28,16 @@ class ProductService:
             WHERE v.product_id = ?
         """, (product_id,)) as cursor:
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            results = []
+            for row in rows:
+                item = dict(row)
+                if item.get("attributes") and isinstance(item["attributes"], str):
+                    try:
+                        item["attributes"] = json.loads(item["attributes"])
+                    except Exception:
+                        pass
+                results.append(item)
+            return results
 
     @staticmethod
     async def get_products(limit: int = 10, offset: int = 0) -> Tuple[List[dict], int]:
@@ -112,10 +121,25 @@ class ProductService:
                 # Create Variants if any
                 if product.variants:
                     for variant in product.variants:
-                        await db.execute(
-                            "INSERT INTO product_variants (product_id, sku, weight, price) VALUES (?, ?, ?, ?)",
-                            (product_id, variant.sku, variant.weight, variant.price)
+                        attr_json = json.dumps(variant.attributes) if variant.attributes else None
+                        weight_val = variant.weight or ""
+                        v_cursor = await db.execute(
+                            "INSERT INTO product_variants (product_id, sku, weight, size, color, attributes, price) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (product_id, variant.sku, weight_val, variant.size, variant.color, attr_json, variant.price)
                         )
+                        variant_id = v_cursor.lastrowid
+
+                        # Initialize variant stock quantity if provided
+                        initial_qty = getattr(variant, "initial_stock", 0) or getattr(variant, "stock", 0) or 0
+                        if initial_qty > 0:
+                            await db.execute(
+                                "INSERT INTO inventory (product_id, variant_id, quantity) VALUES (?, ?, ?)",
+                                (product_id, variant_id, initial_qty)
+                            )
+                            await db.execute(
+                                "INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'IN', 'INITIAL_STOCK')",
+                                (product_id, variant_id, initial_qty)
+                            )
                 
                 await db.commit()
                 return await ProductService.get_product_by_id(product_id)
@@ -159,18 +183,41 @@ class ProductService:
                     
                     # 2. Update existing or Insert new variants
                     for variant in variants_to_update:
+                        attr_val = variant.get("attributes")
+                        attr_json = json.dumps(attr_val) if isinstance(attr_val, dict) else attr_val
+                        weight_val = variant.get("weight") or ""
+
                         if variant.get("id"):
-                            # Update existing
+                            v_id = variant["id"]
                             await db.execute(
-                                "UPDATE product_variants SET sku = ?, weight = ?, price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                                (variant["sku"], variant["weight"], variant["price"], variant["id"])
+                                "UPDATE product_variants SET sku = ?, weight = ?, size = ?, color = ?, attributes = ?, price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (variant.get("sku"), weight_val, variant.get("size"), variant.get("color"), attr_json, variant.get("price"), v_id)
                             )
+                            stock_qty = variant.get("stock", variant.get("initial_stock"))
+                            if stock_qty is not None:
+                                async with db.execute("SELECT quantity FROM inventory WHERE variant_id = ?", (v_id,)) as inv_cur:
+                                    inv_row = await inv_cur.fetchone()
+                                    if inv_row is None:
+                                        await db.execute("INSERT INTO inventory (product_id, variant_id, quantity) VALUES (?, ?, ?)", (product_id, v_id, stock_qty))
+                                        if stock_qty > 0:
+                                            await db.execute("INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'IN', 'INITIAL_STOCK')", (product_id, v_id, stock_qty))
+                                    else:
+                                        old_qty = inv_row[0]
+                                        diff = stock_qty - old_qty
+                                        if diff != 0:
+                                            await db.execute("UPDATE inventory SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ?", (stock_qty, v_id))
+                                            move_type = 'IN' if diff > 0 else 'ADJUST'
+                                            await db.execute("INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, ?, 'VARIANT_UPDATE')", (product_id, v_id, diff, move_type))
                         else:
-                            # Insert new
-                            await db.execute(
-                                "INSERT INTO product_variants (product_id, sku, weight, price) VALUES (?, ?, ?, ?)",
-                                (product_id, variant["sku"], variant["weight"], variant["price"])
+                            v_cursor = await db.execute(
+                                "INSERT INTO product_variants (product_id, sku, weight, size, color, attributes, price) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                (product_id, variant.get("sku"), weight_val, variant.get("size"), variant.get("color"), attr_json, variant.get("price"))
                             )
+                            new_v_id = v_cursor.lastrowid
+                            initial_qty = variant.get("initial_stock") or variant.get("stock") or 0
+                            if initial_qty > 0:
+                                await db.execute("INSERT INTO inventory (product_id, variant_id, quantity) VALUES (?, ?, ?)", (product_id, new_v_id, initial_qty))
+                                await db.execute("INSERT INTO stock_movements (product_id, variant_id, quantity, type, reference_id) VALUES (?, ?, ?, 'IN', 'INITIAL_STOCK')", (product_id, new_v_id, initial_qty))
 
                 await db.commit()
                 return await ProductService.get_product_by_id(product_id)
