@@ -54,9 +54,6 @@ if [ -f "alembic.ini" ]; then
 fi
 
 echo -e "${YELLOW}➜ Restarting systemd service...${NC}"
-sudo systemctl restart inventory-portal-be || \
-sudo systemctl restart portal-inventory-be || \
-sudo systemctl restart inventory-be || \
-sudo systemctl restart svarp-inventory-be || true
+sudo systemctl restart inventory-portal-be
 
 echo -e "${GREEN}✓ Inventory Backend deployment successful!${NC}"
