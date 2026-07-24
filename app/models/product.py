@@ -44,6 +44,7 @@ class VariantType(VariantTypeBase):
 class ProductVariantBase(BaseModel):
     sku: str
     price: float = Field(..., gt=0)
+    images: Optional[List[str]] = None
 
 class ProductVariantCreate(ProductVariantBase):
     initial_stock: Optional[int] = 0
@@ -55,6 +56,7 @@ class ProductVariantUpdate(BaseModel):
     sku: Optional[str] = None
     price: Optional[float] = Field(None, gt=0)
     stock: Optional[int] = None
+    images: Optional[List[str]] = None
     attributes: Optional[Dict[str, str]] = None
 
 class ProductVariant(ProductVariantBase):
@@ -62,6 +64,7 @@ class ProductVariant(ProductVariantBase):
     product_id: str
     stock: int = 0
     reserved: int = 0
+    images: Optional[List[str]] = []
     # Dynamic attributes map, e.g. {"Color": "Red", "Size": "M"}
     attributes: Dict[str, str] = {}
     created_at: datetime
