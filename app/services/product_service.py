@@ -190,8 +190,8 @@ class ProductService:
                         if variant.get("id"):
                             v_id = variant["id"]
                             await db.execute(
-                                "UPDATE product_variants SET sku = ?, weight = ?, size = ?, color = ?, attributes = ?, price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                                (variant.get("sku"), weight_val, variant.get("size"), variant.get("color"), attr_json, variant.get("price"), v_id)
+                                "UPDATE product_variants SET weight = ?, size = ?, color = ?, attributes = ?, price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (weight_val, variant.get("size"), variant.get("color"), attr_json, variant.get("price"), v_id)
                             )
                             stock_qty = variant.get("stock", variant.get("initial_stock"))
                             if stock_qty is not None:
