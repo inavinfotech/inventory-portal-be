@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # SVARP Portal Inventory Backend Deployment Script
-# Target Server Location: /var/www/portal-inventory-be (or /var/www/inventory-be)
+# Target Server Location: /var/www/inventory-portal-be (or /var/www/portal-inventory-be)
 # ==============================================================================
 
 set -e
@@ -13,11 +13,15 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-BE_DIR="${BE_DIR:-/var/www/portal-inventory-be}"
+BE_DIR="${BE_DIR:-/var/www/inventory-portal-be}"
 BRANCH="${BRANCH:-dev}"
 
-if [ ! -d "$BE_DIR" ] && [ -d "/var/www/inventory-be" ]; then
-  BE_DIR="/var/www/inventory-be"
+if [ ! -d "$BE_DIR" ]; then
+  if [ -d "/var/www/portal-inventory-be" ]; then
+    BE_DIR="/var/www/portal-inventory-be"
+  elif [ -d "/var/www/inventory-be" ]; then
+    BE_DIR="/var/www/inventory-be"
+  fi
 fi
 
 echo -e "${CYAN}========================================================================${NC}"
@@ -49,7 +53,10 @@ if [ -f "alembic.ini" ]; then
   alembic upgrade head || alembic stamp head || echo -e "${YELLOW}Notice: Migration completed or stamped.${NC}"
 fi
 
-echo -e "${YELLOW}➜ Restarting systemd service 'portal-inventory-be'...${NC}"
-sudo systemctl restart portal-inventory-be || sudo systemctl restart inventory-be || true
+echo -e "${YELLOW}➜ Restarting systemd service...${NC}"
+sudo systemctl restart inventory-portal-be || \
+sudo systemctl restart portal-inventory-be || \
+sudo systemctl restart inventory-be || \
+sudo systemctl restart svarp-inventory-be || true
 
 echo -e "${GREEN}✓ Inventory Backend deployment successful!${NC}"
