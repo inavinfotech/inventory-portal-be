@@ -1,13 +1,24 @@
 import asyncio
 import aiosqlite
+import os
 from app.core.config import settings
 
 async def init_db():
-    db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+    raw_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+    # Resolve relative paths to absolute, anchored at the backend directory
+    if not os.path.isabs(raw_path):
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        db_path = os.path.join(backend_dir, raw_path.lstrip("./"))
+    else:
+        db_path = raw_path
+    print(f"Using DB path: {db_path}")
     async with aiosqlite.connect(db_path) as db:
+        await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA foreign_keys = ON;")
-        
-        # Applications table (for API Auth)
+
+        # ------------------------------------------------------------------ #
+        #  Applications table (API Auth)                                       #
+        # ------------------------------------------------------------------ #
         await db.execute("""
             CREATE TABLE IF NOT EXISTS applications (
                 id TEXT PRIMARY KEY,
@@ -23,30 +34,63 @@ async def init_db():
             )
         """)
 
-        # Products table
+        # ------------------------------------------------------------------ #
+        #  Products table                                                       #
+        # ------------------------------------------------------------------ #
         await db.execute("""
             CREATE TABLE IF NOT EXISTS products (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 sku TEXT UNIQUE NOT NULL,
                 description TEXT,
-                price REAL NOT NULL,
+                base_price REAL NOT NULL,
                 images TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-        # Product Variants table
+        # ------------------------------------------------------------------ #
+        #  Variant Types table                                                  #
+        #  One row per variant dimension per product (e.g. "Color", "Size")   #
+        # ------------------------------------------------------------------ #
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS variant_types (
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                display_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE,
+                UNIQUE(product_id, name)
+            )
+        """)
+
+        # ------------------------------------------------------------------ #
+        #  Variant Options table                                                #
+        #  Specific values for each type (e.g. Color → "Red", "Blue")        #
+        # ------------------------------------------------------------------ #
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS variant_options (
+                id TEXT PRIMARY KEY,
+                variant_type_id TEXT NOT NULL,
+                value TEXT NOT NULL,
+                display_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (variant_type_id) REFERENCES variant_types (id) ON DELETE CASCADE,
+                UNIQUE(variant_type_id, value)
+            )
+        """)
+
+        # ------------------------------------------------------------------ #
+        #  Product Variants table                                               #
+        #  Each row = one concrete SKU (no hardcoded size/color/weight)       #
+        # ------------------------------------------------------------------ #
         await db.execute("""
             CREATE TABLE IF NOT EXISTS product_variants (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id INTEGER NOT NULL,
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
                 sku TEXT UNIQUE NOT NULL,
-                weight TEXT,
-                size TEXT,
-                color TEXT,
-                attributes TEXT,
                 price REAL NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -54,27 +98,47 @@ async def init_db():
             )
         """)
 
-        # Inventory table
+        # ------------------------------------------------------------------ #
+        #  Variant Option Assignments table                                     #
+        #  M2M: each variant → its selected option values                     #
+        #  e.g. variant X has Color="Red" AND Size="M"                        #
+        # ------------------------------------------------------------------ #
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS variant_option_assignments (
+                variant_id TEXT NOT NULL,
+                variant_option_id TEXT NOT NULL,
+                PRIMARY KEY (variant_id, variant_option_id),
+                FOREIGN KEY (variant_id) REFERENCES product_variants (id) ON DELETE CASCADE,
+                FOREIGN KEY (variant_option_id) REFERENCES variant_options (id) ON DELETE CASCADE
+            )
+        """)
+
+        # ------------------------------------------------------------------ #
+        #  Inventory table                                                      #
+        # ------------------------------------------------------------------ #
         await db.execute("""
             CREATE TABLE IF NOT EXISTS inventory (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id INTEGER NOT NULL,
-                variant_id INTEGER,
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
+                variant_id TEXT,
                 quantity INTEGER NOT NULL DEFAULT 0,
                 low_stock_threshold INTEGER NOT NULL DEFAULT 10,
                 location TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE,
-                FOREIGN KEY (variant_id) REFERENCES product_variants (id) ON DELETE CASCADE
+                FOREIGN KEY (variant_id) REFERENCES product_variants (id) ON DELETE CASCADE,
+                UNIQUE(product_id, variant_id)
             )
         """)
 
-        # Stock Movements table
+        # ------------------------------------------------------------------ #
+        #  Stock Movements table                                                #
+        # ------------------------------------------------------------------ #
         await db.execute("""
             CREATE TABLE IF NOT EXISTS stock_movements (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id INTEGER NOT NULL,
-                variant_id INTEGER,
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
+                variant_id TEXT,
                 quantity INTEGER NOT NULL,
                 type TEXT CHECK(type IN ('IN', 'OUT', 'ADJUST')) NOT NULL,
                 reference_id TEXT,
@@ -84,12 +148,14 @@ async def init_db():
             )
         """)
 
-        # Reservations table
+        # ------------------------------------------------------------------ #
+        #  Reservations table                                                   #
+        # ------------------------------------------------------------------ #
         await db.execute("""
             CREATE TABLE IF NOT EXISTS reservations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id INTEGER NOT NULL,
-                variant_id INTEGER,
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
+                variant_id TEXT,
                 quantity INTEGER NOT NULL,
                 status TEXT CHECK(status IN ('RESERVED', 'CONFIRMED', 'RELEASED')) NOT NULL DEFAULT 'RESERVED',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -99,26 +165,16 @@ async def init_db():
             )
         """)
 
-        # Migration: Add variant_id column if missing from existing tables
-        for table in ["inventory", "stock_movements", "reservations"]:
-            cursor = await db.execute(f"PRAGMA table_info({table})")
-            columns = [row[1] for row in await cursor.fetchall()]
-            if "variant_id" not in columns:
-                print(f"Adding variant_id to {table}...")
-                await db.execute(f"ALTER TABLE {table} ADD COLUMN variant_id INTEGER")
-
-        # Migration: Add size, color, attributes columns to product_variants if missing
-        cursor = await db.execute("PRAGMA table_info(product_variants)")
-        variant_columns = [row[1] for row in await cursor.fetchall()]
-        for new_col in ["size", "color", "attributes"]:
-            if new_col not in variant_columns:
-                print(f"Adding {new_col} column to product_variants...")
-                await db.execute(f"ALTER TABLE product_variants ADD COLUMN {new_col} TEXT")
-
-        # Indexes
+        # ------------------------------------------------------------------ #
+        #  Indexes                                                              #
+        # ------------------------------------------------------------------ #
         await db.execute("CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_product_variants_sku ON product_variants(sku)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants(product_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_variant_types_product_id ON variant_types(product_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_variant_options_type_id ON variant_options(variant_type_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_voa_variant_id ON variant_option_assignments(variant_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_voa_option_id ON variant_option_assignments(variant_option_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_inventory_product_id ON inventory(product_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_inventory_variant_id ON inventory(variant_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)")
@@ -126,27 +182,9 @@ async def init_db():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_reference_id ON stock_movements(reference_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_reservations_product_id ON reservations(product_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_reservations_variant_id ON reservations(variant_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status)")
 
         await db.commit()
-        
-        # Seed Website Application (Disabled as per user request to move to dashboard setup)
-        # website_api_key = "app_117136c25b8273b68a1eaa79"
-        # website_api_secret = "Fj3vUNAPnNSOEioBGRGUx74kcomRFZA4gi7b7d5W"
-        
-        # from passlib.hash import sha256_crypt
-        # hashed_secret = sha256_crypt.hash(website_api_secret)
-        
-        # cursor = await db.execute("SELECT id FROM applications WHERE api_key = ?", (website_api_key,))
-        # if not await cursor.fetchone():
-        #     print("Seeding website application to inventory portal...")
-        #     await db.execute(
-        #         """INSERT INTO applications 
-        #            (id, name, api_key, api_secret, is_active, is_live_mode, allowed_domains) 
-        #            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        #         ("website-app-id", "TianaLuxora Website", website_api_key, hashed_secret, 1, 0, "*")
-        #     )
-        #     await db.commit()
-        #     print("Website application seeding complete for inventory portal.")
 
     print("Database initialized successfully.")
 

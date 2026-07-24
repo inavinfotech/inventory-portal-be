@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, status, Path, Response
 from typing import List
-from app.models.product import Product, ProductCreate, ProductUpdate
+from app.models.product import Product, ProductCreate, ProductUpdate, VariantType
 from app.models.common import PaginatedResponse
 from app.services.product_service import product_service
 from app.auth.deps import get_authenticated_user
@@ -11,6 +11,7 @@ import shutil
 from app.core.config import settings
 
 router = APIRouter(prefix="/products", tags=["products"], dependencies=[Depends(get_authenticated_user)])
+
 
 @router.get("/", response_model=PaginatedResponse[Product])
 async def list_products(
@@ -25,12 +26,23 @@ async def list_products(
         "offset": offset
     }
 
+
 @router.get("/{product_id}", response_model=Product)
-async def get_product(product_id: int = Path(..., gt=0)):
+async def get_product(product_id: str = Path(..., min_length=1)):
     product = await product_service.get_product_by_id(product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     return product
+
+
+@router.get("/{product_id}/variant-types", response_model=List[VariantType])
+async def get_variant_types(product_id: str = Path(..., min_length=1)):
+    """Return the variant type taxonomy (niches + options) for a product."""
+    product = await product_service.get_product_by_id(product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return await product_service.get_variant_types_for_product(product_id)
+
 
 @router.post("/", response_model=Product)
 async def create_product(product: ProductCreate, response: Response):
@@ -38,38 +50,37 @@ async def create_product(product: ProductCreate, response: Response):
     if existing:
         response.status_code = status.HTTP_200_OK
         return existing
-    
+
     response.status_code = status.HTTP_201_CREATED
     return await product_service.create_product(product)
 
+
 @router.put("/{product_id}", response_model=Product)
-async def update_product(product_id: int, product: ProductUpdate):
+async def update_product(product_id: str, product: ProductUpdate):
     updated = await product_service.update_product(product_id, product)
     if not updated:
         raise HTTPException(status_code=404, detail="Product not found")
     return updated
 
+
 @router.post("/upload-images", response_model=List[str])
 async def upload_images(files: List[UploadFile] = File(...)):
     uploaded_urls = []
-    
-    # Base directory for uploads
+
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     upload_dir = os.path.join(base_dir, "uploads", "products")
-    
+
     if not os.path.exists(upload_dir):
         os.makedirs(upload_dir)
-        
+
     for file in files:
-        # Generate unique filename
         ext = os.path.splitext(file.filename)[1]
         filename = f"{uuid.uuid4()}{ext}"
         filepath = os.path.join(upload_dir, filename)
-        
+
         with open(filepath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
-        # Return the relative URL
+
         uploaded_urls.append(f"/uploads/products/{filename}")
-        
+
     return uploaded_urls

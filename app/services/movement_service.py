@@ -1,11 +1,11 @@
 from typing import List, Optional, Tuple, Any
 from app.db.database import db_helper
-import aiosqlite
+
 
 class MovementService:
     @staticmethod
     async def get_movements(
-        product_id: Optional[int] = None,
+        product_id: Optional[str] = None,
         type: Optional[str] = None,
         reference_id: Optional[str] = None,
         limit: int = 10,
@@ -29,18 +29,17 @@ class MovementService:
                 count_query += " AND reference_id = ?"
                 params.append(reference_id)
 
-            # Get total count
             async with db.execute(count_query, params) as cursor:
                 total = (await cursor.fetchone())[0]
 
-            # Get paginated results
             query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
             params.extend([limit, offset])
-            
+
             async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
                 items = [dict(row) for row in rows]
-                
+
             return items, total
+
 
 movement_service = MovementService()

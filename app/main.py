@@ -27,11 +27,11 @@ async def lifespan(app: FastAPI):
         import logging
         logger = logging.getLogger("uvicorn.error")
         while True:
+            await asyncio.sleep(300)  # Wait 5 minutes before first and each subsequent run
             try:
                 await reservation_service.cleanup_stale_reservations(30)
             except Exception as e:
                 logger.error(f"Reservation cleanup failed: {e}", exc_info=True)
-            await asyncio.sleep(300) # Every 5 minutes
 
     task = asyncio.create_task(cleanup_loop())
     yield

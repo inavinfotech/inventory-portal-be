@@ -2,9 +2,11 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 
+
 class Movement(BaseModel):
-    id: int
-    product_id: int
+    id: str
+    product_id: str
+    variant_id: Optional[str] = None
     quantity: int
     type: str
     reference_id: Optional[str] = None

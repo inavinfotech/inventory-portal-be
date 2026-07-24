@@ -6,11 +6,16 @@ from app.services.movement_service import movement_service
 from app.auth.deps import get_authenticated_user
 from fastapi import Depends
 
-router = APIRouter(prefix="/inventory/movements", tags=["inventory"], dependencies=[Depends(get_authenticated_user)])
+router = APIRouter(
+    prefix="/inventory/movements",
+    tags=["inventory"],
+    dependencies=[Depends(get_authenticated_user)]
+)
+
 
 @router.get("/", response_model=PaginatedResponse[Movement])
 async def list_movements(
-    product_id: Optional[int] = Query(None),
+    product_id: Optional[str] = Query(None),
     type: Optional[str] = Query(None, pattern="^(IN|OUT|ADJUST)$"),
     reference_id: Optional[str] = Query(None),
     limit: int = Query(10, gt=0, le=100),

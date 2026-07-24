@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
+
 class ItemBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -9,8 +10,10 @@ class ItemBase(BaseModel):
     quantity: int = Field(..., ge=0)
     sku: str
 
+
 class ItemCreate(ItemBase):
     pass
+
 
 class ItemUpdate(BaseModel):
     name: Optional[str] = None
@@ -19,8 +22,9 @@ class ItemUpdate(BaseModel):
     quantity: Optional[int] = Field(None, ge=0)
     sku: Optional[str] = None
 
+
 class Item(ItemBase):
-    id: int
+    id: str
     created_at: datetime
     updated_at: datetime
 

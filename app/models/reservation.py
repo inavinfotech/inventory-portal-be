@@ -2,16 +2,19 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
+
 class ReservationBase(BaseModel):
-    product_id: int = Field(..., gt=0)
-    variant_id: Optional[int] = None
+    product_id: str
+    variant_id: Optional[str] = None
     quantity: int = Field(..., gt=0)
+
 
 class ReservationCreate(ReservationBase):
     pass
 
+
 class Reservation(ReservationBase):
-    id: int
+    id: str
     status: str
     created_at: datetime
     updated_at: datetime
