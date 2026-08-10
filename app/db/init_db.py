@@ -93,6 +93,8 @@ async def init_db():
                 product_id TEXT NOT NULL,
                 sku TEXT UNIQUE NOT NULL,
                 price REAL NOT NULL,
+                mrp REAL,
+                images TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
@@ -196,6 +198,12 @@ async def init_db():
         # Add images column to product_variants if it doesn't exist
         try:
             await db.execute("ALTER TABLE product_variants ADD COLUMN images TEXT")
+        except Exception:
+            pass  # Column already exists
+
+        # Add mrp column to product_variants if it doesn't exist
+        try:
+            await db.execute("ALTER TABLE product_variants ADD COLUMN mrp REAL")
         except Exception:
             pass  # Column already exists
 

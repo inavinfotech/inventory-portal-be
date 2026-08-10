@@ -54,7 +54,7 @@ class ProductService:
     async def _get_variants_for_product(db: aiosqlite.Connection, product_id: str) -> List[dict]:
         """Return concrete variants with dynamic attributes map."""
         async with db.execute("""
-            SELECT pv.id, pv.product_id, pv.sku, pv.price, pv.created_at, pv.updated_at, pv.images,
+            SELECT pv.id, pv.product_id, pv.sku, pv.price, pv.mrp, pv.created_at, pv.updated_at, pv.images,
                    COALESCE(i.quantity, 0) as stock,
                    COALESCE((
                        SELECT SUM(r.quantity)
@@ -69,7 +69,7 @@ class ProductService:
 
         results = []
         for row in rows:
-            images_raw = row[6]
+            images_raw = row[7]
             v_images = []
             if images_raw:
                 try:
@@ -82,11 +82,12 @@ class ProductService:
                 "product_id": row[1],
                 "sku": row[2],
                 "price": row[3],
-                "created_at": row[4],
-                "updated_at": row[5],
+                "mrp": row[4],
+                "created_at": row[5],
+                "updated_at": row[6],
                 "images": v_images,
-                "stock": row[7],
-                "reserved": row[8],
+                "stock": row[8],
+                "reserved": row[9],
                 "attributes": {},
             }
 
@@ -281,8 +282,8 @@ class ProductService:
                         variant_id = str(uuid.uuid4())
                         v_images_json = json.dumps(variant.images) if variant.images else None
                         await db.execute(
-                            "INSERT INTO product_variants (id, product_id, sku, price, images) VALUES (?, ?, ?, ?, ?)",
-                            (variant_id, product_id, variant.sku, variant.price, v_images_json)
+                            "INSERT INTO product_variants (id, product_id, sku, price, mrp, images) VALUES (?, ?, ?, ?, ?, ?)",
+                            (variant_id, product_id, variant.sku, variant.price, variant.mrp, v_images_json)
                         )
 
                         # Assign option attributes
@@ -364,6 +365,9 @@ class ProductService:
                             if variant.get("price") is not None:
                                 update_fields.append("price = ?")
                                 update_vals.append(variant["price"])
+                            if "mrp" in variant:
+                                update_fields.append("mrp = ?")
+                                update_vals.append(variant["mrp"])
                             if "images" in variant:
                                 v_imgs = variant.get("images")
                                 update_fields.append("images = ?")
@@ -415,8 +419,8 @@ class ProductService:
                             v_imgs = variant.get("images")
                             v_imgs_json = json.dumps(v_imgs) if v_imgs else None
                             await db.execute(
-                                "INSERT INTO product_variants (id, product_id, sku, price, images) VALUES (?, ?, ?, ?, ?)",
-                                (new_v_id, product_id, variant.get("sku"), variant.get("price", 0), v_imgs_json)
+                                "INSERT INTO product_variants (id, product_id, sku, price, mrp, images) VALUES (?, ?, ?, ?, ?, ?)",
+                                (new_v_id, product_id, variant.get("sku"), variant.get("price", 0), variant.get("mrp"), v_imgs_json)
                             )
                             if attributes:
                                 await ProductService._assign_variant_options(db, new_v_id, product_id, attributes)

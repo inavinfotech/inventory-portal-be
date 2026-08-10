@@ -44,6 +44,7 @@ class VariantType(VariantTypeBase):
 class ProductVariantBase(BaseModel):
     sku: str
     price: float = Field(..., gt=0)
+    mrp: Optional[float] = Field(None, gt=0)
     images: Optional[List[str]] = None
 
 class ProductVariantCreate(ProductVariantBase):
@@ -55,6 +56,7 @@ class ProductVariantUpdate(BaseModel):
     id: Optional[str] = None
     sku: Optional[str] = None
     price: Optional[float] = Field(None, gt=0)
+    mrp: Optional[float] = Field(None, gt=0)
     stock: Optional[int] = None
     images: Optional[List[str]] = None
     attributes: Optional[Dict[str, str]] = None
