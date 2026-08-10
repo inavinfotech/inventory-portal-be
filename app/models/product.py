@@ -83,6 +83,7 @@ class ProductBase(BaseModel):
     sku: str
     description: Optional[str] = None
     base_price: float = Field(..., gt=0)
+    discounted_price: Optional[float] = Field(None, gt=0)
     images: Optional[List[str]] = None
 
 class ProductCreate(ProductBase):
@@ -93,6 +94,7 @@ class ProductUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     base_price: Optional[float] = Field(None, gt=0)
+    discounted_price: Optional[float] = None
     images: Optional[List[str]] = None
     variant_types: Optional[List[VariantTypeCreate]] = None
     variants: Optional[List[ProductVariantUpdate]] = None

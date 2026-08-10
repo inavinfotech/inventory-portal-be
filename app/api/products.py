@@ -63,6 +63,15 @@ async def update_product(product_id: str, product: ProductUpdate):
     return updated
 
 
+@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_product(product_id: str):
+    success = await product_service.delete_product(product_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+
 @router.post("/upload-images", response_model=List[str])
 async def upload_images(files: List[UploadFile] = File(...)):
     uploaded_urls = []

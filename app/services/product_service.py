@@ -266,8 +266,8 @@ class ProductService:
                 images_json = json.dumps(product.images) if product.images else None
 
                 await db.execute(
-                    "INSERT INTO products (id, name, sku, description, base_price, images) VALUES (?, ?, ?, ?, ?, ?)",
-                    (product_id, product.name, product.sku, product.description, product.base_price, images_json)
+                    "INSERT INTO products (id, name, sku, description, base_price, discounted_price, images) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (product_id, product.name, product.sku, product.description, product.base_price, product.discounted_price, images_json)
                 )
 
                 # Upsert variant types + options first
@@ -437,6 +437,21 @@ class ProductService:
             except Exception as e:
                 await db.rollback()
                 raise e
+
+    @staticmethod
+    async def delete_product(product_id: str) -> bool:
+        """Delete a product and all associated data (cascading via FK)."""
+        async with db_helper.get_db_connection() as db:
+            # Check product exists
+            async with db.execute("SELECT id FROM products WHERE id = ?", (product_id,)) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return False
+
+            # Delete product — FK cascades will remove variants, inventory, movements, reservations
+            await db.execute("DELETE FROM products WHERE id = ?", (product_id,))
+            await db.commit()
+            return True
 
     @staticmethod
     async def get_variant_types_for_product(product_id: str) -> List[dict]:

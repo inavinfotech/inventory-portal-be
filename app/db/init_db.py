@@ -44,6 +44,7 @@ async def init_db():
                 sku TEXT UNIQUE NOT NULL,
                 description TEXT,
                 base_price REAL NOT NULL,
+                discounted_price REAL,
                 images TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -183,6 +184,20 @@ async def init_db():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_reservations_product_id ON reservations(product_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_reservations_variant_id ON reservations(variant_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status)")
+
+        # ------------------------------------------------------------------ #
+        #  Migrations — safe column additions for existing databases          #
+        # ------------------------------------------------------------------ #
+        try:
+            await db.execute("ALTER TABLE products ADD COLUMN discounted_price REAL")
+        except Exception:
+            pass  # Column already exists
+
+        # Add images column to product_variants if it doesn't exist
+        try:
+            await db.execute("ALTER TABLE product_variants ADD COLUMN images TEXT")
+        except Exception:
+            pass  # Column already exists
 
         await db.commit()
 
