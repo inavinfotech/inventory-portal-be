@@ -196,25 +196,50 @@ class ProductService:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    async def get_products(limit: int = 10, offset: int = 0) -> Tuple[List[dict], int]:
+    async def get_products(limit: int = 10, offset: int = 0, search: Optional[str] = None) -> Tuple[List[dict], int]:
         async with db_helper.get_db_connection() as db:
-            async with db.execute("SELECT COUNT(*) FROM products") as cursor:
-                total = (await cursor.fetchone())[0]
+            if search and search.strip():
+                term = f"%{search.strip().lower()}%"
+                async with db.execute(
+                    "SELECT COUNT(*) FROM products WHERE LOWER(name) LIKE ? OR LOWER(sku) LIKE ?",
+                    (term, term),
+                ) as cursor:
+                    total = (await cursor.fetchone())[0]
 
-            async with db.execute("""
-                SELECT p.*,
-                       COALESCE((SELECT SUM(quantity) FROM inventory WHERE product_id = p.id), 0) as stock,
-                       COALESCE((SELECT SUM(quantity) FROM reservations WHERE product_id = p.id AND status = 'RESERVED'), 0) as reserved
-                FROM products p
-                ORDER BY p.created_at DESC LIMIT ? OFFSET ?
-            """, (limit, offset)) as cursor:
-                rows = await cursor.fetchall()
-                items = []
-                for row in rows:
-                    product = ProductService._process_product_row(row)
-                    product["variant_types"] = await ProductService._get_variant_types_for_product(db, product["id"])
-                    product["variants"] = await ProductService._get_variants_for_product(db, product["id"])
-                    items.append(product)
+                async with db.execute(
+                    """
+                    SELECT p.*,
+                           COALESCE((SELECT SUM(quantity) FROM inventory WHERE product_id = p.id), 0) as stock,
+                           COALESCE((SELECT SUM(quantity) FROM reservations WHERE product_id = p.id AND status = 'RESERVED'), 0) as reserved
+                    FROM products p
+                    WHERE LOWER(p.name) LIKE ? OR LOWER(p.sku) LIKE ?
+                    ORDER BY p.created_at DESC LIMIT ? OFFSET ?
+                """,
+                    (term, term, limit, offset),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            else:
+                async with db.execute("SELECT COUNT(*) FROM products") as cursor:
+                    total = (await cursor.fetchone())[0]
+
+                async with db.execute(
+                    """
+                    SELECT p.*,
+                           COALESCE((SELECT SUM(quantity) FROM inventory WHERE product_id = p.id), 0) as stock,
+                           COALESCE((SELECT SUM(quantity) FROM reservations WHERE product_id = p.id AND status = 'RESERVED'), 0) as reserved
+                    FROM products p
+                    ORDER BY p.created_at DESC LIMIT ? OFFSET ?
+                """,
+                    (limit, offset),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+
+            items = []
+            for row in rows:
+                product = ProductService._process_product_row(row)
+                product["variant_types"] = await ProductService._get_variant_types_for_product(db, product["id"])
+                product["variants"] = await ProductService._get_variants_for_product(db, product["id"])
+                items.append(product)
 
             return items, total
 

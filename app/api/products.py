@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, status, Path, Response
-from typing import List
+from typing import List, Optional
 from app.models.product import Product, ProductCreate, ProductUpdate, VariantType
 from app.models.common import PaginatedResponse
 from app.services.product_service import product_service
@@ -16,9 +16,10 @@ router = APIRouter(prefix="/products", tags=["products"], dependencies=[Depends(
 @router.get("/", response_model=PaginatedResponse[Product])
 async def list_products(
     limit: int = Query(10, gt=0, le=100),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
+    search: Optional[str] = Query(None)
 ):
-    items, total = await product_service.get_products(limit, offset)
+    items, total = await product_service.get_products(limit, offset, search)
     return {
         "items": items,
         "total": total,
